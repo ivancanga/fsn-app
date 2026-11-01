@@ -18,6 +18,104 @@ La aplicación se usa tanto desde los teléfonos de las personas invitadas como 
 
 Durante la fiesta, una TV grande muestra el dashboard de los cuatro equipos. Los puntajes se actualizan en tiempo real mientras avanzan los juegos de mesa.
 
+## Administración
+
+La pantalla `/admin` permite modificar los puntajes de los cuatro equipos: rojo, verde, azul y amarillo. Los datos se guardan en Firebase y el dashboard de equipos los recibe en tiempo real.
+
+También contiene controles para la votación de outfits: permite editar los cuatro participantes, sus descripciones e imágenes, y decidir cuándo se muestran los resultados.
+
+## Firebase
+
+La aplicación usa Firebase Web SDK para Firestore y Cloud Storage. La configuración se lee desde estas variables públicas de Next.js:
+
+- `NEXT_PUBLIC_FIREBASE_API_KEY`
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+- `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
+- `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
+- `NEXT_PUBLIC_FIREBASE_APP_ID`
+
+No se encontró Firebase Authentication en el código. La pantalla de administración usa una contraseña definida en el cliente y guardada temporalmente en `sessionStorage`; es un control visual, no una protección de acceso a la base de datos. Las reglas de Firestore y Storage deben proteger los datos y las imágenes.
+
+### Firestore: `teams`
+
+Cada equipo se representa mediante un documento dentro de la colección `teams`:
+
+```text
+teams/{rojo|verde|azul|amarillo}
+  score: number
+  players: Array<{
+    name: string
+    photo: string | null
+    createdAt: string  // fecha ISO
+  }>
+```
+
+El check-in agrega una persona al array `players` mediante `arrayUnion`. La pantalla `/teams`, que se usa como dashboard, escucha la colección completa con `onSnapshot`, muestra integrantes y ordena los equipos por `score`. La administración lee y actualiza `score` para cada documento.
+
+Los documentos de equipo deben existir antes del primer check-in: el código usa `updateDoc`, que falla si el documento todavía no fue creado.
+
+### Storage: fotos de check-in
+
+Al registrarse, una persona sube una foto comprimida en el navegador a esta ruta:
+
+```text
+checkins/{equipo}/{timestamp}_{nombre-normalizado}.jpg
+```
+
+Después se guarda la URL descargable en `teams/{equipo}.players`. La imagen se comprime a JPEG de hasta 800 px antes de subirla.
+
+### Firestore: `votation/current`
+
+Esta pantalla corresponde a la votación de outfits y no forma parte del flujo principal de check-in. El documento contiene un interruptor de resultados y cuatro participantes fijos:
+
+```text
+votation/current
+  mostrarResultados: boolean
+  participante1..participante4:
+    name: string
+    description: string
+    votes: number
+```
+
+`/outfits` escucha este documento en tiempo real y modifica los votos con una transacción para mantener los conteos consistentes. El voto elegido se recuerda solamente en `localStorage` del navegador. La administración edita el documento y carga las imágenes asociadas.
+
+Las imágenes de los outfits se guardan en:
+
+```text
+outfits/{participante1|participante2|participante3|participante4}.jpg
+```
+
+### Firestore: `games/current`
+
+Esta colección se usa para la dinámica llamada "El rito de sangre":
+
+```text
+games/current
+  winner: string
+  {equipo}: number // intentos erróneos por equipo
+```
+
+`/game` incrementa el contador del equipo cuando el código es incorrecto y escribe `winner` cuando se acierta. `/stats` escucha el documento para mostrar intentos en tiempo real y redirige a la celebración cuando existe un ganador. `/celebration` lee el ganador una vez para mostrar la pantalla final.
+
+### Uso de tiempo real
+
+| Recurso | Pantalla | Operación |
+| --- | --- | --- |
+| `teams` | `/components/checkin` | Cuenta integrantes para balancear la ruleta. |
+| `teams` | `/teams` | Actualiza la TV con participantes y puntos. |
+| `votation/current` | `/outfits` | Actualiza votos y resultados. |
+| `games/current` | `/stats` | Actualiza intentos y detecta ganador. |
+
+## Observaciones para el refactor
+
+- Definir un único tipo `TeamId` en minúsculas (`rojo`, `verde`, `azul`, `amarillo`) y derivar desde allí etiquetas, colores y rutas. Hoy algunas pantallas usan IDs en minúscula y otras claves con inicial mayúscula.
+- Crear servicios separados para `teams`, `checkins`, `outfits` y `games`, en lugar de llamar a Firebase desde cada pantalla.
+- Crear tipos compartidos para `Team`, `Player`, `OutfitParticipant` y `GameState`.
+- Sustituir los arrays de jugadores dentro del documento de equipo por una subcolección cuando se necesite escalar, editar o borrar check-ins individualmente.
+- Definir y versionar reglas de Firestore y Storage antes de depender de la contraseña del cliente para administrar datos.
+- Centralizar la compresión y subida de imágenes, que hoy está repetida en check-in y administración.
+
 ## Conceptos del dominio
 
 | Concepto | Descripción |
