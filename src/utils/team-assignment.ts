@@ -31,7 +31,7 @@ export type TeamAssignment = {
 };
 
 export async function reserveBalancedTeam(): Promise<TeamAssignment> {
-  const reservationId = crypto.randomUUID();
+  const reservationId = createReservationId();
   const now = Date.now();
 
   return runTransaction(db, async (transaction) => {
@@ -72,6 +72,14 @@ export async function reserveBalancedTeam(): Promise<TeamAssignment> {
 
     return { reservationId, teamId, expiresAt: now + RESERVATION_TTL_MS };
   });
+}
+
+function createReservationId(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export function isTeamAssignmentExpired(assignment: TeamAssignment): boolean {
