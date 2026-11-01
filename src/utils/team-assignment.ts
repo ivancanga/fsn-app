@@ -75,7 +75,7 @@ export async function reserveBalancedTeam(): Promise<TeamAssignment> {
 }
 
 function createReservationId(): string {
-  if (typeof crypto.randomUUID === "function") {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
 
