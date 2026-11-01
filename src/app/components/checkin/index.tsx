@@ -217,14 +217,12 @@ const CheckIn = () => {
 
   if (isRedirecting) {
     return (
-      <div className="checkin-success-screen fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden">
-        <div className="checkin-success-orbit absolute h-[32rem] w-[32rem] rounded-full border border-white/30" />
-        <div className="checkin-success-orbit checkin-success-orbit-delayed absolute h-[22rem] w-[22rem] rounded-full border border-white/20" />
-        <div className="checkin-success-mark relative mb-8 flex h-24 w-24 items-center justify-center rounded-full border-4 border-white/80 bg-white/15 text-5xl shadow-2xl">✓</div>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center">
+        <div className="animate-spin rounded-full h-24 w-24 border-8 border-transparent border-t-white mb-8"></div>
         <h2 className="text-4xl font-bold text-white text-center [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)] mb-2">
-          Check-in confirmado
+          ¿Estás listo?
         </h2>
-        <p className="relative text-5xl font-bold text-white [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">
+        <p className="text-5xl font-bold text-white [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">
           ¡A jugar! 💪
         </p>
       </div>
@@ -232,21 +230,13 @@ const CheckIn = () => {
   }
 
   return (
-    <section className="checkin-card-enter mt-0 w-full max-w-4xl mx-auto overflow-hidden bg-white/5 border border-white/30 rounded-3xl p-8 shadow-2xl text-white text-xl transform-gpu backdrop-blur-sm">
-      <div className="mb-8 flex flex-col gap-2">
-        <p className="checkin-eyebrow text-sm font-bold uppercase tracking-[0.35em] text-[#fff2bf]">Fiesta sin nombre</p>
-        <h2 className="text-5xl font-black tracking-tight [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">Check-in</h2>
-        <p className="text-lg text-white/75">Entrá al juego: registrate, encontrá tu equipo y sumate a la noche.</p>
-      </div>
-
-      <div className="checkin-steps mb-8 grid grid-cols-3 gap-2 text-center text-sm font-bold uppercase tracking-wider">
-        <div className={`checkin-step ${playerName ? "checkin-step-done" : ""}`}><span>01</span> Identidad</div>
-        <div className={`checkin-step ${selectedTeam ? "checkin-step-done" : ""}`}><span>02</span> Equipo</div>
-        <div className={`checkin-step ${photoFile ? "checkin-step-done" : ""}`}><span>03</span> Foto</div>
+    <section className="mt-0 w-full max-w-4xl mx-auto bg-white/5 border border-white/30 rounded-3xl p-8 shadow-2xl text-white text-xl transform-gpu">
+      <div className="flex flex-col gap-2 mb-6">
+        <h2 className="text-4xl font-bold tracking-tight [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">Check-in</h2>
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-        <div className="checkin-field-enter">
+        <div>
           <label className="block text-m font-semibold text-gray-300 mb-2 [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">👉 Tu nombre</label>
           <input
             type="text"
@@ -257,7 +247,7 @@ const CheckIn = () => {
           />
         </div>
 
-        <div className="checkin-field-enter checkin-field-enter-delayed flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <label className="block text-m font-semibold text-gray-300 [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">👉 Equipo</label>
             <button
@@ -270,9 +260,9 @@ const CheckIn = () => {
             </button>
           </div>
 
-          <div className={`checkin-wheel-shell relative flex items-center justify-center w-full aspect-square max-w-md mx-auto ${isSpinning ? "checkin-wheel-active" : ""}`}>
+          <div className="relative flex items-center justify-center w-full aspect-square max-w-md mx-auto">
             <div
-              className="checkin-wheel w-full h-full rounded-full border-4 border-white/40 shadow-xl will-change-transform"
+              className="w-full h-full rounded-full border-4 border-white/40 shadow-xl will-change-transform"
               style={{
                 backgroundImage:
                   "conic-gradient(#ef4444 0deg 90deg, #22c55e 90deg 180deg, #3b82f6 180deg 270deg, #facc15 270deg 360deg)",
@@ -290,7 +280,7 @@ const CheckIn = () => {
 
           {selectedTeam && (
             <div
-              className="checkin-team-reveal text-center text-3xl text-white font-bold mt-2 py-4 px-6 rounded-2xl min-h-[3rem]"
+              className="text-center text-3xl text-white font-bold mt-2 py-4 px-6 rounded-2xl min-h-[3rem]"
               style={{ backgroundColor: `${teamColors[selectedTeam as keyof typeof teamColors]}CC` }}
             >
               Tu equipo: {selectedTeam}
@@ -298,7 +288,7 @@ const CheckIn = () => {
           )}
         </div>
 
-        <div className="checkin-field-enter checkin-field-enter-late flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <label className="block text-m font-semibold text-gray-300 [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">👉 Tu foto</label>
           <input
             id="photo-upload"
@@ -310,7 +300,7 @@ const CheckIn = () => {
           />
           <label
             htmlFor="photo-upload"
-            className="checkin-photo-button cursor-pointer rounded-2xl bg-white/10 border-2 border-white/30 px-6 py-4 text-center text-white hover:bg-white/20 transition-all flex items-center justify-center gap-2"
+            className="cursor-pointer rounded-2xl bg-white/10 border-2 border-white/30 px-6 py-4 text-center text-white hover:bg-white/20 transition-all flex items-center justify-center gap-2"
           >
             <span className="text-2xl">📸</span>
             <span className="font-semibold [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">
@@ -318,7 +308,7 @@ const CheckIn = () => {
             </span>
           </label>
           {photoPreview && (
-            <div className="checkin-photo-reveal mt-4 flex flex-col items-center">
+            <div className="mt-4 flex flex-col items-center">
               <p className="text-m font-semibold text-gray-300 mb-2 [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">Vista previa</p>
               <div className="w-[9rem] h-[12rem] rounded-3xl border border-white/30 bg-black/60 shadow-xl overflow-hidden relative">
                 <Image
@@ -339,7 +329,7 @@ const CheckIn = () => {
           disabled={!canRegister || isSubmitting}
           className={`rounded-2xl px-6 py-4 font-bold text-2xl transition ${
             canRegister && !isSubmitting
-              ? `checkin-submit-ready text-white hover:opacity-90 shadow-lg ${
+              ? `text-white hover:opacity-90 shadow-lg ${
                   selectedTeam === "Rojo"
                     ? "bg-[#ef4444]"
                     : selectedTeam === "Verde"
