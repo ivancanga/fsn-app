@@ -43,10 +43,13 @@ export default function OutfitsPage() {
   useEffect(() => {
     const storedVote = window.localStorage.getItem(STORAGE_KEY);
     if (storedVote) {
-      setSelectedId(storedVote);
-      setHasVoted(true);
-      setSyncState("ready");
-      return;
+      const timer = window.setTimeout(() => {
+        setSelectedId(storedVote);
+        setHasVoted(true);
+        setSyncState("ready");
+      }, 0);
+
+      return () => window.clearTimeout(timer);
     }
 
     const timer = window.setTimeout(() => {

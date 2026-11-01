@@ -42,19 +42,15 @@ export default function AdminPage() {
   useEffect(() => {
     const storedAuth = sessionStorage.getItem("adminAuth");
     if (storedAuth === ADMIN_PASSWORD) {
-      setIsAuthenticated(true);
+      const timer = window.setTimeout(() => {
+        setIsAuthenticated(true);
+      }, 0);
+
+      return () => window.clearTimeout(timer);
     }
   }, []);
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadData();
-      loadImages();
-      loadTeamScores();
-    }
-  }, [isAuthenticated]);
-
-  const loadData = async () => {
+  async function loadData() {
     try {
       const docRef = doc(db, "votation", "current");
       const docSnap = await getDoc(docRef);
@@ -75,9 +71,9 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Error loading data:", error);
     }
-  };
+  }
 
-  const loadImages = async () => {
+  async function loadImages() {
     const urls: Record<string, string> = {};
     for (const id of PARTICIPANT_IDS) {
       try {
@@ -89,9 +85,9 @@ export default function AdminPage() {
       }
     }
     setImageUrls(urls);
-  };
+  }
 
-  const loadTeamScores = async () => {
+  async function loadTeamScores() {
     try {
       const scores: Record<string, number> = {};
       for (const teamId of TEAM_IDS) {
@@ -108,7 +104,19 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Error loading team scores:", error);
     }
-  };
+  }
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const timer = window.setTimeout(() => {
+        void loadData();
+        void loadImages();
+        void loadTeamScores();
+      }, 0);
+
+      return () => window.clearTimeout(timer);
+    }
+  }, [isAuthenticated]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
