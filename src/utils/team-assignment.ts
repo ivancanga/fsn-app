@@ -4,7 +4,7 @@ import { db } from "./firebase";
 const TEAM_IDS = ["rojo", "verde", "azul", "amarillo"] as const;
 const MAX_PLAYERS_PER_TEAM = 8;
 const MAX_DIFFERENCE = 3;
-const RESERVATION_TTL_MS = 10 * 60 * 1000;
+export const RESERVATION_TTL_MS = 10 * 60 * 1000;
 
 export type TeamId = (typeof TEAM_IDS)[number];
 
@@ -25,6 +25,7 @@ type TeamData = {
 };
 
 export type TeamAssignment = {
+  expiresAt: number;
   reservationId: string;
   teamId: TeamId;
 };
@@ -69,8 +70,12 @@ export async function reserveBalancedTeam(): Promise<TeamAssignment> {
       }
     }
 
-    return { reservationId, teamId };
+    return { reservationId, teamId, expiresAt: now + RESERVATION_TTL_MS };
   });
+}
+
+export function isTeamAssignmentExpired(assignment: TeamAssignment): boolean {
+  return Date.now() >= assignment.expiresAt;
 }
 
 export async function confirmTeamCheckIn(assignment: TeamAssignment, player: Player): Promise<void> {

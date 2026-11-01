@@ -6,6 +6,7 @@ import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { storage } from "../../../utils/firebase";
 import {
   confirmTeamCheckIn,
+  isTeamAssignmentExpired,
   releaseTeamReservation,
   reserveBalancedTeam,
   type TeamAssignment,
@@ -22,6 +23,11 @@ const teamColors = {
 
 // Cambia esto a false para deshabilitar la validación de check-in duplicado
 const ENABLE_CHECK_IN_VALIDATION = true;
+const PENDING_ASSIGNMENT_STORAGE_KEY = "fsnPendingTeamAssignment";
+
+function getTeamLabel(teamId: TeamAssignment["teamId"]): string {
+  return teamId.charAt(0).toUpperCase() + teamId.slice(1);
+}
 
 const CheckIn = () => {
   const router = useRouter();
@@ -38,24 +44,35 @@ const CheckIn = () => {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [assignment, setAssignment] = useState<TeamAssignment | null>(null);
 
-  // Verificar si el usuario ya se registró y redirigir
   useEffect(() => {
-    if (ENABLE_CHECK_IN_VALIDATION) {
-      const hasCheckedIn = sessionStorage.getItem("hasCheckedIn");
-      if (hasCheckedIn === "true") {
-        router.push("/teams");
+    if (ENABLE_CHECK_IN_VALIDATION && sessionStorage.getItem("hasCheckedIn") === "true") {
+      router.push("/teams");
+      return;
+    }
+
+    const storedAssignment = sessionStorage.getItem(PENDING_ASSIGNMENT_STORAGE_KEY);
+    if (!storedAssignment) return;
+
+    try {
+      const pendingAssignment = JSON.parse(storedAssignment) as TeamAssignment;
+      if (isTeamAssignmentExpired(pendingAssignment)) {
+        sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
+        void releaseTeamReservation(pendingAssignment);
+        return;
       }
+
+      const timer = window.setTimeout(() => {
+        setAssignment(pendingAssignment);
+        setSelectedTeam(getTeamLabel(pendingAssignment.teamId));
+        setHasSpun(true);
+      }, 0);
+      return () => window.clearTimeout(timer);
+    } catch {
+      sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
     }
   }, [router]);
 
-  useEffect(() => {
-    if (!assignment) return;
-    return () => {
-      void releaseTeamReservation(assignment);
-    };
-  }, [assignment]);
-
-  const canRegister = !!playerName.trim() && !!selectedTeam && !!photoFile && !isRedirecting;
+  const canRegister = !!playerName.trim() && !!selectedTeam && !!photoFile && !isRedirecting && !isSubmitting;
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -129,12 +146,13 @@ const CheckIn = () => {
     setIsSpinning(true);
     try {
       const reservedAssignment = await reserveBalancedTeam();
-      const selectedEligibleTeam = reservedAssignment.teamId.charAt(0).toUpperCase() + reservedAssignment.teamId.slice(1);
+      const selectedEligibleTeam = getTeamLabel(reservedAssignment.teamId);
       const randomIndex = teams.indexOf(selectedEligibleTeam);
       const segmentAngle = 360 / teams.length;
       const targetRotation = 5 * 360 - (randomIndex * segmentAngle + segmentAngle / 2);
 
       setAssignment(reservedAssignment);
+      sessionStorage.setItem(PENDING_ASSIGNMENT_STORAGE_KEY, JSON.stringify(reservedAssignment));
       setHasSpun(true);
       setRotation(targetRotation);
       window.setTimeout(() => {
@@ -151,6 +169,15 @@ const CheckIn = () => {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!canRegister || !assignment) return;
+    if (isTeamAssignmentExpired(assignment)) {
+      await releaseTeamReservation(assignment);
+      sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
+      setAssignment(null);
+      setSelectedTeam(null);
+      setHasSpun(false);
+      setStatusMessage("La reserva venció. Girá la ruleta de nuevo.");
+      return;
+    }
     setIsSubmitting(true);
     setStatusMessage(null);
 
@@ -170,6 +197,7 @@ const CheckIn = () => {
         createdAt: new Date().toISOString(),
       });
       setAssignment(null);
+      sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
 
       if (ENABLE_CHECK_IN_VALIDATION) {
         sessionStorage.setItem("hasCheckedIn", "true");
@@ -182,10 +210,6 @@ const CheckIn = () => {
     } catch (error) {
       console.error("Error al registrar check-in", error);
       setStatusMessage("No pudimos registrar tu check-in. Reintentá en un rato.");
-      await releaseTeamReservation(assignment);
-      setAssignment(null);
-      setSelectedTeam(null);
-      setHasSpun(false);
     } finally {
       setIsSubmitting(false);
     }
