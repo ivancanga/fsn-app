@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Aplicación
+
+La documentación funcional de FSN está en [docs/app-context.md](docs/app-context.md).
+
 ## Getting Started
 
 First, run the development server:
