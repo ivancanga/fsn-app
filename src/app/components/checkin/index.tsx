@@ -2,9 +2,14 @@
 
 import Image from "next/image";
 import React, { useMemo, useState, useEffect } from "react";
-import { doc, updateDoc, arrayUnion, collection, onSnapshot } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { db, storage } from "../../../utils/firebase";
+import { storage } from "../../../utils/firebase";
+import {
+  confirmTeamCheckIn,
+  releaseTeamReservation,
+  reserveBalancedTeam,
+  type TeamAssignment,
+} from "../../../utils/team-assignment";
 import { useRouter } from "next/navigation";
 import { Logo } from "../../styled";
 
@@ -14,10 +19,6 @@ const teamColors = {
   Azul: "#3b82f6",
   Amarillo: "#facc15",
 };
-
-// Configuración del balanceador de equipos
-const MAX_PLAYERS_PER_TEAM = 8;
-const MAX_DIFFERENCE = 3;
 
 // Cambia esto a false para deshabilitar la validación de check-in duplicado
 const ENABLE_CHECK_IN_VALIDATION = true;
@@ -35,12 +36,7 @@ const CheckIn = () => {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
-  const [teamCounts, setTeamCounts] = useState<Record<string, number>>({
-    Rojo: 0,
-    Verde: 0,
-    Azul: 0,
-    Amarillo: 0,
-  });
+  const [assignment, setAssignment] = useState<TeamAssignment | null>(null);
 
   // Verificar si el usuario ya se registró y redirigir
   useEffect(() => {
@@ -52,40 +48,12 @@ const CheckIn = () => {
     }
   }, [router]);
 
-  // Cargar conteos de equipos desde Firebase
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "teams"), (snapshot) => {
-      const counts: Record<string, number> = {
-        Rojo: 0,
-        Verde: 0,
-        Azul: 0,
-        Amarillo: 0,
-      };
-
-      snapshot.forEach((doc) => {
-        const teamId = doc.id;
-        const teamData = doc.data();
-        const teamName = teamId.charAt(0).toUpperCase() + teamId.slice(1);
-
-        if (counts[teamName] !== undefined) {
-          counts[teamName] = teamData.players?.length || 0;
-        }
-      });
-
-      setTeamCounts(counts);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (ENABLE_CHECK_IN_VALIDATION) {
-      const hasRegistered = sessionStorage.getItem("hasCheckedIn");
-      if (hasRegistered === "true") {
-        router.push("/teams");
-      }
-    }
-  }, [router]);
+    if (!assignment) return;
+    return () => {
+      void releaseTeamReservation(assignment);
+    };
+  }, [assignment]);
 
   const canRegister = !!playerName.trim() && !!selectedTeam && !!photoFile && !isRedirecting;
 
@@ -155,67 +123,34 @@ const CheckIn = () => {
     }
   };
 
-  // Algoritmo de balanceo de equipos
-  const getEligibleTeams = (): string[] => {
-    const counts = Object.values(teamCounts);
-    const minCount = Math.min(...counts);
-    const maxCount = Math.max(...counts);
-
-    // Si todos los equipos están llenos, retornar array vacío
-    if (minCount >= MAX_PLAYERS_PER_TEAM) {
-      return [];
-    }
-
-    // Si la diferencia es menor a MAX_DIFFERENCE, todos los equipos no llenos son elegibles
-    if (maxCount - minCount < MAX_DIFFERENCE) {
-      return teams.filter(team => teamCounts[team] < MAX_PLAYERS_PER_TEAM);
-    }
-
-    // Si hay diferencia >= MAX_DIFFERENCE, solo los equipos con menos jugadores son elegibles
-    // Calculamos el umbral: equipos con minCount hasta minCount + MAX_DIFFERENCE - 1
-    const threshold = minCount + MAX_DIFFERENCE - 1;
-    return teams.filter(team =>
-      teamCounts[team] <= threshold && teamCounts[team] < MAX_PLAYERS_PER_TEAM
-    );
-  };
-
-  const handleSpin = () => {
+  const handleSpin = async () => {
     if (isSpinning || hasSpun) return;
 
-    const eligibleTeams = getEligibleTeams();
-
-    if (eligibleTeams.length === 0) {
-      alert("Todos los equipos están llenos. No se puede realizar más check-in.");
-      return;
-    }
-
     setIsSpinning(true);
-    setHasSpun(true);
+    try {
+      const reservedAssignment = await reserveBalancedTeam();
+      const selectedEligibleTeam = reservedAssignment.teamId.charAt(0).toUpperCase() + reservedAssignment.teamId.slice(1);
+      const randomIndex = teams.indexOf(selectedEligibleTeam);
+      const segmentAngle = 360 / teams.length;
+      const targetRotation = 5 * 360 - (randomIndex * segmentAngle + segmentAngle / 2);
 
-    // Seleccionar aleatoriamente entre los equipos elegibles
-    const selectedEligibleTeam = eligibleTeams[Math.floor(Math.random() * eligibleTeams.length)];
-    const randomIndex = teams.indexOf(selectedEligibleTeam);
-
-    const segmentAngle = 360 / teams.length;
-    const extraSpins = 5;
-
-    // La flecha apunta arriba (0°), entonces necesitamos que el centro del segmento seleccionado esté en 0°
-    // Cada segmento va: Rojo (0-90), Verde (90-180), Azul (180-270), Amarillo (270-360)
-    // Para que el centro del segmento quede arriba, rotamos negativamente
-    const segmentCenter = randomIndex * segmentAngle + segmentAngle / 2;
-    const targetRotation = extraSpins * 360 - segmentCenter;
-
-    setRotation(targetRotation);
-
-    setTimeout(() => {
-      setSelectedTeam(teams[randomIndex]);
+      setAssignment(reservedAssignment);
+      setHasSpun(true);
+      setRotation(targetRotation);
+      window.setTimeout(() => {
+        setSelectedTeam(selectedEligibleTeam);
+        setIsSpinning(false);
+      }, 3500);
+    } catch (error) {
+      console.error("Error al asignar equipo:", error);
+      alert(error instanceof Error ? error.message : "No pudimos asignar un equipo. Reintentá.");
       setIsSpinning(false);
-    }, 3500);
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canRegister) return;
+    if (!canRegister || !assignment) return;
     setIsSubmitting(true);
     setStatusMessage(null);
 
@@ -224,22 +159,17 @@ const CheckIn = () => {
       let photoUrl: string | null = null;
 
       if (photoFile) {
-        const teamPath = selectedTeam ?? "sinEquipo";
-        const storageRef = ref(storage, `checkins/${teamPath}/${Date.now()}_${safeName}.jpg`);
+        const storageRef = ref(storage, `checkins/${assignment.teamId}/${Date.now()}_${safeName}.jpg`);
         const uploadResult = await uploadBytes(storageRef, photoFile);
         photoUrl = await getDownloadURL(uploadResult.ref);
       }
 
-      const teamId = selectedTeam!.toLowerCase();
-      const teamDocRef = doc(db, "teams", teamId);
-
-      await updateDoc(teamDocRef, {
-        players: arrayUnion({
-          name: playerName.trim(),
-          photo: photoUrl,
-          createdAt: new Date().toISOString(),
-        }),
+      await confirmTeamCheckIn(assignment, {
+        name: playerName.trim(),
+        photo: photoUrl,
+        createdAt: new Date().toISOString(),
       });
+      setAssignment(null);
 
       if (ENABLE_CHECK_IN_VALIDATION) {
         sessionStorage.setItem("hasCheckedIn", "true");
@@ -252,6 +182,10 @@ const CheckIn = () => {
     } catch (error) {
       console.error("Error al registrar check-in", error);
       setStatusMessage("No pudimos registrar tu check-in. Reintentá en un rato.");
+      await releaseTeamReservation(assignment);
+      setAssignment(null);
+      setSelectedTeam(null);
+      setHasSpun(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -396,4 +330,3 @@ const CheckIn = () => {
 };
 
 export default CheckIn;
-
