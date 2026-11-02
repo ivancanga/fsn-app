@@ -64,9 +64,9 @@ settings/currentFSN
   eventId: string
 ```
 
-El check-in escucha este documento en tiempo real. En `sessionStorage`, guarda `fsnCheckedInEventId`, el ID del evento en el que el dispositivo ya completó el check-in; una marca de otra FSN no bloquea la nueva. Las reservas temporales en `teams/{team}.pendingAssignments` también incluyen `eventId` y solo cuentan para el evento activo. Para iniciar otra FSN por ahora, se cambia `eventId` por un valor único en este documento.
+El check-in escucha este documento en tiempo real. En `localStorage`, guarda `fsnCheckedInEventId`, el ID del evento en el que el navegador ya completó el check-in; así la marca sirve entre pestañas del mismo navegador, y una marca de otra FSN no bloquea la nueva. La app también migra a `localStorage` una marca equivalente que haya quedado en `sessionStorage`. Las reservas temporales en `teams/{team}.pendingAssignments` incluyen `eventId` y solo cuentan para el evento activo. Para iniciar otra FSN por ahora, se cambia `eventId` por un valor único en este documento.
 
-El estado de la reserva pendiente del navegador se guarda en `fsnPendingTeamAssignment`. La confirmación vuelve a verificar el evento activo dentro de una transacción, de modo que una reserva de una FSN anterior no se pueda confirmar en la nueva.
+El estado de la reserva pendiente de la pestaña se guarda en `sessionStorage` bajo `fsnPendingTeamAssignment`. La confirmación vuelve a verificar el evento activo dentro de una transacción, de modo que una reserva de una FSN anterior no se pueda confirmar en la nueva.
 
 ### Storage: fotos de check-in
 

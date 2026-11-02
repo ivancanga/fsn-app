@@ -86,7 +86,11 @@ const CheckIn = () => {
         previousEventId = eventId;
 
         sessionStorage.removeItem("hasCheckedIn");
-        if (ENABLE_CHECK_IN_VALIDATION && sessionStorage.getItem(CHECKED_IN_EVENT_STORAGE_KEY) === eventId) {
+        const checkedInEventId =
+          localStorage.getItem(CHECKED_IN_EVENT_STORAGE_KEY) ??
+          sessionStorage.getItem(CHECKED_IN_EVENT_STORAGE_KEY);
+        if (ENABLE_CHECK_IN_VALIDATION && checkedInEventId === eventId) {
+          localStorage.setItem(CHECKED_IN_EVENT_STORAGE_KEY, eventId);
           router.replace("/teams");
           return;
         }
@@ -199,7 +203,7 @@ const CheckIn = () => {
       sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
 
       if (ENABLE_CHECK_IN_VALIDATION) {
-        sessionStorage.setItem(CHECKED_IN_EVENT_STORAGE_KEY, activeEventId);
+        localStorage.setItem(CHECKED_IN_EVENT_STORAGE_KEY, activeEventId);
       }
       setIsRedirecting(true);
 
