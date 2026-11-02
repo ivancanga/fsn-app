@@ -2,17 +2,16 @@
 
 import Image from "next/image";
 import React, { useMemo, useState, useEffect } from "react";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { onSnapshot } from "firebase/firestore";
-import { storage } from "../../../utils/firebase";
-import { CURRENT_FSN_DOCUMENT, isValidFsnId } from "../../../utils/current-fsn";
+import { CURRENT_FSN_DOCUMENT, isValidFsnId } from "../../../features/checkin/current-fsn";
+import { prepareCheckInPhoto } from "../../../features/checkin/photo";
+import { registerCheckIn } from "../../../features/checkin/service";
 import {
-  confirmTeamCheckIn,
   isTeamAssignmentExpired,
   releaseTeamReservation,
   reserveBalancedTeam,
   type TeamAssignment,
-} from "../../../utils/team-assignment";
+} from "../../../features/checkin/team-assignment";
 import { useRouter } from "next/navigation";
 import { Logo } from "../../styled";
 
@@ -53,7 +52,10 @@ const CheckIn = () => {
     let previousEventId: string | null = null;
     const unsubscribe = onSnapshot(
       CURRENT_FSN_DOCUMENT,
+      { includeMetadataChanges: true },
       (snapshot) => {
+        if (snapshot.metadata.fromCache) return;
+
         const eventId = snapshot.data()?.eventId;
         if (!snapshot.exists() || !isValidFsnId(eventId)) {
           setActiveEventId(null);
@@ -115,6 +117,12 @@ const CheckIn = () => {
     return unsubscribe;
   }, [router]);
 
+  useEffect(() => {
+    return () => {
+      if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
+
   const canRegister = !!activeEventId && !!playerName.trim() && !!selectedTeam && !!photoFile && !isRedirecting && !isSubmitting;
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -126,60 +134,12 @@ const CheckIn = () => {
     }
 
     try {
-      // Optimize image before storing
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const img = document.createElement('img');
-
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = URL.createObjectURL(file);
-      });
-
-      const MAX_SIZE = 800;
-      let width = img.width;
-      let height = img.height;
-
-      if (width > height) {
-        if (width > MAX_SIZE) {
-          height = (height * MAX_SIZE) / width;
-          width = MAX_SIZE;
-        }
-      } else {
-        if (height > MAX_SIZE) {
-          width = (width * MAX_SIZE) / height;
-          height = MAX_SIZE;
-        }
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-      ctx?.drawImage(img, 0, 0, width, height);
-
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.85);
-      });
-
-      // Convert blob to File
-      const optimizedFile = new File([blob], file.name, { type: 'image/jpeg' });
-
-      // Create preview
-      const previewUrl = URL.createObjectURL(blob);
-      setPhotoPreview(previewUrl);
-      setPhotoFile(optimizedFile);
+      const preparedPhoto = await prepareCheckInPhoto(file);
+      setPhotoPreview(preparedPhoto.previewUrl);
+      setPhotoFile(preparedPhoto.file);
     } catch (error) {
-      console.error("Error optimizing image:", error);
-      // Fallback to original file if optimization fails
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result === "string") {
-          setPhotoPreview(result);
-        }
-      };
-      reader.readAsDataURL(file);
-      setPhotoFile(file);
+      console.error("Error al preparar la foto del check-in:", error);
+      setStatusMessage("No pudimos abrir esa foto. Probá con otra imagen.");
     }
   };
 
@@ -234,20 +194,7 @@ const CheckIn = () => {
     setStatusMessage(null);
 
     try {
-      const safeName = playerName.trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "jugador";
-      let photoUrl: string | null = null;
-
-      if (photoFile) {
-        const storageRef = ref(storage, `checkins/${assignment.teamId}/${Date.now()}_${safeName}.jpg`);
-        const uploadResult = await uploadBytes(storageRef, photoFile);
-        photoUrl = await getDownloadURL(uploadResult.ref);
-      }
-
-      await confirmTeamCheckIn(assignment, {
-        name: playerName.trim(),
-        photo: photoUrl,
-        createdAt: new Date().toISOString(),
-      });
+      await registerCheckIn(assignment, playerName, photoFile);
       setAssignment(null);
       sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
 

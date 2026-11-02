@@ -1,5 +1,5 @@
 import { doc, runTransaction } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "../../utils/firebase";
 import { CURRENT_FSN_DOCUMENT } from "./current-fsn";
 
 const TEAM_IDS = ["rojo", "verde", "azul", "amarillo"] as const;
@@ -15,14 +15,14 @@ type TeamReservation = {
   createdAt: number;
 };
 
-type Player = {
+export type CheckInPlayer = {
   name: string;
   photo: string | null;
   createdAt: string;
 };
 
 type TeamData = {
-  players?: Player[];
+  players?: CheckInPlayer[];
   pendingAssignments?: TeamReservation[];
 };
 
@@ -96,7 +96,7 @@ export function isTeamAssignmentExpired(assignment: TeamAssignment): boolean {
   return Date.now() >= assignment.expiresAt;
 }
 
-export async function confirmTeamCheckIn(assignment: TeamAssignment, player: Player): Promise<void> {
+export async function confirmTeamCheckIn(assignment: TeamAssignment, player: CheckInPlayer): Promise<void> {
   await runTransaction(db, async (transaction) => {
     const reference = doc(db, "teams", assignment.teamId);
     const [eventSnapshot, snapshot] = await Promise.all([

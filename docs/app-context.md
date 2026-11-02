@@ -51,9 +51,9 @@ teams/{rojo|verde|azul|amarillo}
   }>
 ```
 
-El check-in agrega una persona al array `players` mediante `arrayUnion`. La pantalla `/teams`, que se usa como dashboard, escucha la colección completa con `onSnapshot`, muestra integrantes y ordena los equipos por `score`. La administración lee y actualiza `score` para cada documento.
+El check-in agrega una persona al array `players` y elimina su reserva pendiente dentro de una transacción de Firestore. La pantalla `/teams`, que se usa como dashboard, escucha la colección completa con `onSnapshot`, muestra integrantes y ordena los equipos por `score`. La administración lee y actualiza `score` para cada documento.
 
-Los documentos de equipo deben existir antes del primer check-in: el código usa `updateDoc`, que falla si el documento todavía no fue creado.
+La transacción de reserva crea los documentos de equipo que todavía no existen.
 
 ### Firestore: evento activo y reservas de check-in
 
@@ -64,7 +64,9 @@ settings/currentFSN
   eventId: string
 ```
 
-El check-in escucha este documento en tiempo real. En `sessionStorage`, guarda el `eventId` en el que el dispositivo ya completó el check-in; una marca de otra FSN no bloquea la nueva. Las reservas temporales también incluyen `eventId` y solo cuentan para el evento activo. Para iniciar otra FSN por ahora, se cambia `eventId` por un valor único en este documento.
+El check-in escucha este documento en tiempo real. En `sessionStorage`, guarda `fsnCheckedInEventId`, el ID del evento en el que el dispositivo ya completó el check-in; una marca de otra FSN no bloquea la nueva. Las reservas temporales en `teams/{team}.pendingAssignments` también incluyen `eventId` y solo cuentan para el evento activo. Para iniciar otra FSN por ahora, se cambia `eventId` por un valor único en este documento.
+
+El estado de la reserva pendiente del navegador se guarda en `fsnPendingTeamAssignment`. La confirmación vuelve a verificar el evento activo dentro de una transacción, de modo que una reserva de una FSN anterior no se pueda confirmar en la nueva.
 
 ### Storage: fotos de check-in
 
@@ -117,6 +119,16 @@ games/current
 | `teams` | `/teams` | Actualiza la TV con participantes y puntos. |
 | `votation/current` | `/outfits` | Actualiza votos y resultados. |
 | `games/current` | `/stats` | Actualiza intentos y detecta ganador. |
+
+## Organización del código
+
+La lógica propia del check-in está agrupada en `src/features/checkin`:
+
+- `current-fsn.ts` apunta al documento del evento activo y valida su ID.
+- `team-assignment.ts` reserva, confirma y libera equipos mediante transacciones.
+- `photo.ts` comprime la foto y prepara su vista previa en el navegador.
+- `service.ts` sube la foto a Storage y registra al participante en Firestore.
+- `src/app/components/checkin/index.tsx` conserva el estado de interfaz y coordina esos módulos.
 
 ## Observaciones para el refactor
 

@@ -1,5 +1,5 @@
 import { doc } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "../../utils/firebase";
 
 export const CURRENT_FSN_DOCUMENT = doc(db, "settings", "currentFSN");
 
