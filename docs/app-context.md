@@ -55,6 +55,17 @@ El check-in agrega una persona al array `players` mediante `arrayUnion`. La pant
 
 Los documentos de equipo deben existir antes del primer check-in: el código usa `updateDoc`, que falla si el documento todavía no fue creado.
 
+### Firestore: evento activo y reservas de check-in
+
+El documento `settings/currentFSN` identifica la fiesta activa:
+
+```text
+settings/currentFSN
+  eventId: string
+```
+
+El check-in escucha este documento en tiempo real. En `sessionStorage`, guarda el `eventId` en el que el dispositivo ya completó el check-in; una marca de otra FSN no bloquea la nueva. Las reservas temporales también incluyen `eventId` y solo cuentan para el evento activo. Para iniciar otra FSN por ahora, se cambia `eventId` por un valor único en este documento.
+
 ### Storage: fotos de check-in
 
 Al registrarse, una persona sube una foto comprimida en el navegador a esta ruta:

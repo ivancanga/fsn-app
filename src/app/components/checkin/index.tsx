@@ -3,7 +3,9 @@
 import Image from "next/image";
 import React, { useMemo, useState, useEffect } from "react";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { onSnapshot } from "firebase/firestore";
 import { storage } from "../../../utils/firebase";
+import { CURRENT_FSN_DOCUMENT, isValidFsnId } from "../../../utils/current-fsn";
 import {
   confirmTeamCheckIn,
   isTeamAssignmentExpired,
@@ -23,6 +25,7 @@ const teamColors = {
 
 // Cambia esto a false para deshabilitar la validación de check-in duplicado
 const ENABLE_CHECK_IN_VALIDATION = true;
+const CHECKED_IN_EVENT_STORAGE_KEY = "fsnCheckedInEventId";
 const PENDING_ASSIGNMENT_STORAGE_KEY = "fsnPendingTeamAssignment";
 
 function getTeamLabel(teamId: TeamAssignment["teamId"]): string {
@@ -43,36 +46,76 @@ const CheckIn = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [assignment, setAssignment] = useState<TeamAssignment | null>(null);
+  const [activeEventId, setActiveEventId] = useState<string | null>(null);
+  const [eventError, setEventError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (ENABLE_CHECK_IN_VALIDATION && sessionStorage.getItem("hasCheckedIn") === "true") {
-      router.push("/teams");
-      return;
-    }
+    let previousEventId: string | null = null;
+    const unsubscribe = onSnapshot(
+      CURRENT_FSN_DOCUMENT,
+      (snapshot) => {
+        const eventId = snapshot.data()?.eventId;
+        if (!snapshot.exists() || !isValidFsnId(eventId)) {
+          setActiveEventId(null);
+          setEventError("No se encontró un ID de evento válido en settings/currentFSN.");
+          return;
+        }
 
-    const storedAssignment = sessionStorage.getItem(PENDING_ASSIGNMENT_STORAGE_KEY);
-    if (!storedAssignment) return;
+        setActiveEventId(eventId);
+        setEventError(null);
+        if (previousEventId === eventId) return;
 
-    try {
-      const pendingAssignment = JSON.parse(storedAssignment) as TeamAssignment;
-      if (isTeamAssignmentExpired(pendingAssignment)) {
-        sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
-        void releaseTeamReservation(pendingAssignment);
-        return;
-      }
+        let storedAssignment = sessionStorage.getItem(PENDING_ASSIGNMENT_STORAGE_KEY);
+        if (previousEventId && previousEventId !== eventId) {
+          setAssignment(null);
+          setSelectedTeam(null);
+          setHasSpun(false);
+          setRotation(0);
+          if (storedAssignment) {
+            try {
+              void releaseTeamReservation(JSON.parse(storedAssignment) as TeamAssignment).catch(console.error);
+            } catch {
+              // Ignore malformed data left in this tab's session storage.
+            }
+          }
+          sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
+          storedAssignment = null;
+        }
+        previousEventId = eventId;
 
-      const timer = window.setTimeout(() => {
-        setAssignment(pendingAssignment);
-        setSelectedTeam(getTeamLabel(pendingAssignment.teamId));
-        setHasSpun(true);
-      }, 0);
-      return () => window.clearTimeout(timer);
-    } catch {
-      sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
-    }
+        sessionStorage.removeItem("hasCheckedIn");
+        if (ENABLE_CHECK_IN_VALIDATION && sessionStorage.getItem(CHECKED_IN_EVENT_STORAGE_KEY) === eventId) {
+          router.replace("/teams");
+          return;
+        }
+
+        if (!storedAssignment) return;
+        try {
+          const pendingAssignment = JSON.parse(storedAssignment) as TeamAssignment;
+          if (pendingAssignment.eventId !== eventId || isTeamAssignmentExpired(pendingAssignment)) {
+            sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
+            void releaseTeamReservation(pendingAssignment).catch(console.error);
+            return;
+          }
+
+          setAssignment(pendingAssignment);
+          setSelectedTeam(getTeamLabel(pendingAssignment.teamId));
+          setHasSpun(true);
+        } catch {
+          sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
+        }
+      },
+      (error) => {
+        console.error("Error al leer la FSN activa:", error);
+        setActiveEventId(null);
+        setEventError("No pudimos leer la FSN activa desde Firebase. Revisá la conexión e intentá de nuevo.");
+      },
+    );
+
+    return unsubscribe;
   }, [router]);
 
-  const canRegister = !!playerName.trim() && !!selectedTeam && !!photoFile && !isRedirecting && !isSubmitting;
+  const canRegister = !!activeEventId && !!playerName.trim() && !!selectedTeam && !!photoFile && !isRedirecting && !isSubmitting;
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -141,11 +184,11 @@ const CheckIn = () => {
   };
 
   const handleSpin = async () => {
-    if (isSpinning || hasSpun) return;
+    if (!activeEventId || isSpinning || hasSpun) return;
 
     setIsSpinning(true);
     try {
-      const reservedAssignment = await reserveBalancedTeam();
+      const reservedAssignment = await reserveBalancedTeam(activeEventId);
       const selectedEligibleTeam = getTeamLabel(reservedAssignment.teamId);
       const randomIndex = teams.indexOf(selectedEligibleTeam);
       const segmentAngle = 360 / teams.length;
@@ -168,7 +211,16 @@ const CheckIn = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canRegister || !assignment) return;
+    if (!canRegister || !assignment || !activeEventId) return;
+    if (assignment.eventId !== activeEventId) {
+      await releaseTeamReservation(assignment);
+      sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
+      setAssignment(null);
+      setSelectedTeam(null);
+      setHasSpun(false);
+      setStatusMessage("La FSN activa cambió. Girá la ruleta de nuevo.");
+      return;
+    }
     if (isTeamAssignmentExpired(assignment)) {
       await releaseTeamReservation(assignment);
       sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
@@ -200,7 +252,7 @@ const CheckIn = () => {
       sessionStorage.removeItem(PENDING_ASSIGNMENT_STORAGE_KEY);
 
       if (ENABLE_CHECK_IN_VALIDATION) {
-        sessionStorage.setItem("hasCheckedIn", "true");
+        sessionStorage.setItem(CHECKED_IN_EVENT_STORAGE_KEY, activeEventId);
       }
       setIsRedirecting(true);
 
@@ -253,10 +305,10 @@ const CheckIn = () => {
             <button
               type="button"
               onClick={handleSpin}
-              disabled={isSpinning || hasSpun}
-              className={`text-m rounded-full px-4 py-2 font-bold transition-all ${isSpinning || hasSpun ? "bg-gray-500/60 text-white" : "bg-[#f3b0da] text-white hover:bg-[#f3b0da]/80"}`}
+              disabled={!activeEventId || isSpinning || hasSpun}
+              className={`text-m rounded-full px-4 py-2 font-bold transition-all ${!activeEventId || isSpinning || hasSpun ? "bg-gray-500/60 text-white" : "bg-[#f3b0da] text-white hover:bg-[#f3b0da]/80"}`}
             >
-              {isSpinning ? "Girando..." : hasSpun ? "Ya giraste" : "Girar rueda"}
+              {isSpinning ? "Girando..." : hasSpun ? "Ya giraste" : activeEventId ? "Girar rueda" : "Cargando evento..."}
             </button>
           </div>
 
@@ -348,6 +400,7 @@ const CheckIn = () => {
         </button>
 
         {statusMessage && <p className="text-center text-m text-gray-200/80 [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">{statusMessage}</p>}
+        {eventError && <p role="alert" className="text-center text-m text-red-200 [text-shadow:2px_2px_8px_rgba(0,0,0,0.9)]">{eventError}</p>}
       </form>
     </section>
   );

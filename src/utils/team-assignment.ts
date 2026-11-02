@@ -1,5 +1,6 @@
 import { doc, runTransaction } from "firebase/firestore";
 import { db } from "./firebase";
+import { CURRENT_FSN_DOCUMENT } from "./current-fsn";
 
 const TEAM_IDS = ["rojo", "verde", "azul", "amarillo"] as const;
 const MAX_PLAYERS_PER_TEAM = 8;
@@ -10,6 +11,7 @@ export type TeamId = (typeof TEAM_IDS)[number];
 
 type TeamReservation = {
   id: string;
+  eventId: string;
   createdAt: number;
 };
 
@@ -25,22 +27,30 @@ type TeamData = {
 };
 
 export type TeamAssignment = {
+  eventId: string;
   expiresAt: number;
   reservationId: string;
   teamId: TeamId;
 };
 
-export async function reserveBalancedTeam(): Promise<TeamAssignment> {
+export async function reserveBalancedTeam(eventId: string): Promise<TeamAssignment> {
   const reservationId = createReservationId();
   const now = Date.now();
 
   return runTransaction(db, async (transaction) => {
     const references = TEAM_IDS.map((teamId) => ({ teamId, reference: doc(db, "teams", teamId) }));
-    const snapshots = await Promise.all(references.map(({ reference }) => transaction.get(reference)));
+    const [eventSnapshot, ...snapshots] = await Promise.all([
+      transaction.get(CURRENT_FSN_DOCUMENT),
+      ...references.map(({ reference }) => transaction.get(reference)),
+    ]);
+    if (!eventSnapshot.exists() || eventSnapshot.data().eventId !== eventId) {
+      throw new Error("La FSN activa cambió. Recargá la pantalla e intentá de nuevo.");
+    }
+
     const teams = references.map(({ teamId, reference }, index) => {
       const data = snapshots[index].exists() ? (snapshots[index].data() as TeamData) : {};
       const reservations = (data.pendingAssignments ?? []).filter(
-        (reservation) => now - reservation.createdAt < RESERVATION_TTL_MS,
+        (reservation) => reservation.eventId === eventId && now - reservation.createdAt < RESERVATION_TTL_MS,
       );
       return {
         teamId,
@@ -62,7 +72,7 @@ export async function reserveBalancedTeam(): Promise<TeamAssignment> {
     const teamId = eligibleTeams[Math.floor(Math.random() * eligibleTeams.length)];
     for (const team of teams) {
       const updatedReservations = team.teamId === teamId
-        ? [...team.reservations, { id: reservationId, createdAt: now }]
+        ? [...team.reservations, { id: reservationId, eventId, createdAt: now }]
         : team.reservations;
 
       if (updatedReservations.length !== (snapshots[TEAM_IDS.indexOf(team.teamId)].data() as TeamData | undefined)?.pendingAssignments?.length || team.teamId === teamId) {
@@ -70,7 +80,7 @@ export async function reserveBalancedTeam(): Promise<TeamAssignment> {
       }
     }
 
-    return { reservationId, teamId, expiresAt: now + RESERVATION_TTL_MS };
+    return { reservationId, teamId, eventId, expiresAt: now + RESERVATION_TTL_MS };
   });
 }
 
@@ -89,7 +99,14 @@ export function isTeamAssignmentExpired(assignment: TeamAssignment): boolean {
 export async function confirmTeamCheckIn(assignment: TeamAssignment, player: Player): Promise<void> {
   await runTransaction(db, async (transaction) => {
     const reference = doc(db, "teams", assignment.teamId);
-    const snapshot = await transaction.get(reference);
+    const [eventSnapshot, snapshot] = await Promise.all([
+      transaction.get(CURRENT_FSN_DOCUMENT),
+      transaction.get(reference),
+    ]);
+    if (!eventSnapshot.exists() || eventSnapshot.data().eventId !== assignment.eventId) {
+      throw new Error("Esta reserva pertenece a otra FSN. Volvé a girar la ruleta.");
+    }
+
     const data = snapshot.exists() ? (snapshot.data() as TeamData) : {};
     const reservations = (data.pendingAssignments ?? []).filter(
       (reservation) => reservation.id !== assignment.reservationId,
